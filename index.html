@@ -72,7 +72,7 @@
 
 <script>
     // --- GASのURLをここに貼り付け ---
-    const GAS_URL = "https://script.google.com/macros/s/AKfycbxZYpVmTxnEvibUe_Lt63b0mFr3Us88jpbMETJ6jVCWVp0h8x0Nfy19gqV-r8-C2iu8/exec";
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbxevyi047eXKSkxyb-t1_ORjW5Ty1G3tVXrUbc_2SqxN7N-1SXhU6cIHarfq-Whukcg/exec";
     const MAX_QUESTIONS = 10;
     const TIME_LIMIT_MS = 10000;
 
@@ -189,27 +189,32 @@
     }
 
     async function sendScore(name, score) {
-        if (!GAS_URL.startsWith("http")) {
-            document.getElementById('sending-msg').innerText = "※URLが未設定です";
-            return;
-        }
-        document.getElementById('sending-msg').innerText = "順位を取得中...";
-        try {
-            const response = await fetch(GAS_URL, {
-                method: "POST",
-                body: JSON.stringify({ name: name, score: score })
-            });
-            const result = await response.json();
-            
-            // 順位を表示
-            document.getElementById('rank-container').style.display = "block";
-            document.getElementById('rank-val').innerText = result.rank;
-            document.getElementById('total-val').innerText = result.total;
-            document.getElementById('sending-msg').innerText = "今日の順位が確定しました！";
-        } catch (e) {
-            document.getElementById('sending-msg').innerText = "順位の取得に失敗しました。";
-        }
+    if (!GAS_URL.startsWith("http")) return;
+    document.getElementById('sending-msg').innerText = "順位を取得中...";
+
+    try {
+        // GASへのPOST送信
+        const response = await fetch(GAS_URL, {
+            method: "POST",
+            body: JSON.stringify({ name: name, score: score })
+        });
+
+        if (!response.ok) throw new Error('Network response was not ok');
+
+        const result = await response.json();
+        
+        // 順位を表示
+        document.getElementById('rank-container').style.display = "block";
+        document.getElementById('rank-val').innerText = result.rank;
+        document.getElementById('total-val').innerText = result.total;
+        document.getElementById('sending-msg').innerText = "スコアが記録されました！";
+    } catch (e) {
+        console.error("Error:", e);
+        document.getElementById('sending-msg').innerText = "順位の取得に失敗しました。";
+        // 詳細なエラーをコンソールに出力
+        console.log("GASのURLが正しいか、デプロイ設定が『全員（匿名）』になっているか確認してください。");
     }
+}
 
     function createChoices(correctJa) {
         let options = [correctJa];
