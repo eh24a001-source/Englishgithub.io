@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>英単語クイズ - 今日のランキング</title>
+    <style>
+        body { font-family: 'Helvetica Neue', Arial, sans-serif; text-align: center; padding-top: 50px; background-color: #f0f2f5; color: #2f3640; }
+        .container { background: white; max-width: 500px; margin: auto; padding: 30px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); position: relative; overflow: hidden; min-height: 480px; }
+        
+        #timer-container { width: 100%; height: 8px; background-color: #eee; position: absolute; top: 0; left: 0; display: none; }
+        #timer-bar { width: 100%; height: 100%; background-color: #4cd137; transition: width 0.05s linear; }
+        
+        #name-screen input { padding: 12px; font-size: 18px; border-radius: 8px; border: 2px solid #ddd; width: 80%; margin-bottom: 20px; }
+        
+        #progress { font-size: 14px; color: #888; margin-top: 10px; }
+        #word { font-size: 48px; font-weight: bold; margin: 20px 0; }
+        .choices-container { display: grid; grid-template-columns: 1 white; gap: 12px; }
+        .choice-btn { 
+            font-size: 18px; padding: 15px; background: #fff; border: 2px solid #487eb0; 
+            border-radius: 12px; cursor: pointer; transition: 0.2s; color: #487eb0; font-weight: bold;
+        }
+        .choice-btn:hover:not(:disabled) { background: #dcdde1; border-color: #273c75; }
+        .choice-btn:disabled { opacity: 0.6; }
+        
+        #feedback { margin-top: 20px; font-size: 20px; font-weight: bold; height: 30px; }
+        
+        /* リザルト画面 */
+        .score-display { font-size: 64px; font-weight: bold; color: #e84118; margin: 10px 0; }
+        .rank-display { font-size: 24px; color: #2f3640; margin-bottom: 20px; background: #fff3cd; padding: 10px; border-radius: 10px; display: none; }
+        .stats { font-size: 16px; color: #7f8c8d; margin-bottom: 20px; }
+        .btn-primary { padding: 15px 40px; font-size: 18px; background: #487eb0; color: white; border: none; border-radius: 50px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
+        .btn-primary:hover { background: #273c75; }
+        #sending-msg { font-size: 14px; color: #0097e6; margin-top: 15px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div id="timer-container"><div id="timer-bar"></div></div>
+
+    <div id="name-screen">
+        <h2>DAILY RANKING</h2>
+        <p>名前を入力して開始</p>
+        <input type="text" id="user-name" placeholder="ニックネーム" maxlength="15">
+        <br>
+        <button class="btn-primary" onclick="confirmName()">クイズ開始</button>
+    </div>
+
+    <div id="setup" style="display:none;">単語データを読み込んでいます...</div>
+
+    <div id="quiz-area" style="display:none;">
+        <div id="progress">第 1 / 10 問</div>
+        <div id="word">Word</div>
+        <div id="choices" class="choices-container"></div>
+        <div id="feedback"></div>
+    </div>
+
+    <div id="result-area" style="display:none;">
+        <div style="font-size:20px;">TOTAL SCORE</div>
+        <div id="final-points" class="score-display">0</div>
+        
+        <div id="rank-container" class="rank-display">
+            今日の順位: <span id="rank-val">-</span> / <span id="total-val">-</span> 位
+        </div>
+
+        <div id="stats" class="stats"></div>
+        <button class="btn-primary" onclick="location.reload()">RETRY</button>
+        <div id="sending-msg"></div>
+    </div>
+</div>
+
+<script>
+    // --- GASのURLをここに貼り付け ---
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbxZYpVmTxnEvibUe_Lt63b0mFr3Us88jpbMETJ6jVCWVp0h8x0Nfy19gqV-r8-C2iu8/exec";
+    const MAX_QUESTIONS = 10;
+    const TIME_LIMIT_MS = 10000;
+
+    let wordList = [];
+    let currentIndex = 0;
+    let correctCount = 0;
+    let totalScore = 0;
+    let timerInterval;
+    let questionStartTime;
+    let userName = "";
+
+    function confirmName() {
+        userName = document.getElementById('user-name').value.trim();
+        if (!userName) { alert("名前を入力してください"); return; }
+        document.getElementById('name-screen').style.display = 'none';
+        document.getElementById('setup').style.display = 'block';
+        loadCSV();
+    }
+
+    async function loadCSV() {
+        try {
+            const response = await fetch('words.csv');
+            const data = await response.text();
+            const rows = data.split('\n').slice(1);
+            wordList = rows.map(row => {
+                const [english, japanese] = row.split(',');
+                return { en: english?.trim(), ja: japanese?.trim() };
+            }).filter(item => item.en && item.ja);
+
+            if (wordList.length >= 4) {
+                shuffleArray(wordList);
+                startQuiz();
+            } else {
+                document.getElementById('setup').innerText = "単語が足りません。";
+            }
+        } catch (error) {
+            document.getElementById('setup').innerText = "words.csv が見つかりません。";
+        }
+    }
+
+    function startQuiz() {
+        document.getElementById('setup').style.display = 'none';
+        document.getElementById('quiz-area').style.display = 'block';
+        document.getElementById('timer-container').style.display = 'block';
+        showQuestion();
+    }
+
+    function showQuestion() {
+        if (currentIndex >= MAX_QUESTIONS || currentIndex >= wordList.length) {
+            showResult();
+            return;
+        }
+        const currentWord = wordList[currentIndex];
+        document.getElementById('progress').innerText = `第 ${currentIndex + 1} / ${Math.min(MAX_QUESTIONS, wordList.length)} 問`;
+        document.getElementById('word').innerText = currentWord.en;
+        document.getElementById('feedback').innerText = "";
+        const choices = createChoices(currentWord.ja);
+        const choicesDiv = document.getElementById('choices');
+        choicesDiv.innerHTML = "";
+        choices.forEach(choice => {
+            const btn = document.createElement('button');
+            btn.className = 'choice-btn';
+            btn.innerText = choice;
+            btn.onclick = () => checkAnswer(choice, currentWord.ja);
+            choicesDiv.appendChild(btn);
+        });
+        questionStartTime = Date.now();
+        startTimer(currentWord.ja);
+    }
+
+    function startTimer(correctJa) {
+        clearInterval(timerInterval);
+        const bar = document.getElementById('timer-bar');
+        timerInterval = setInterval(() => {
+            const elapsedTime = Date.now() - questionStartTime;
+            const remainingPercent = Math.max(0, 100 - (elapsedTime / TIME_LIMIT_MS * 100));
+            bar.style.width = remainingPercent + "%";
+            if (elapsedTime >= TIME_LIMIT_MS) {
+                clearInterval(timerInterval);
+                checkAnswer(null, correctJa);
+            }
+        }, 30);
+    }
+
+    function checkAnswer(selected, correct) {
+        clearInterval(timerInterval);
+        const timeTakenMs = Date.now() - questionStartTime;
+        const btns = document.querySelectorAll('.choice-btn');
+        btns.forEach(b => b.disabled = true);
+        const feedback = document.getElementById('feedback');
+        if (selected === correct) {
+            feedback.innerText = "〇 正解！";
+            feedback.style.color = "#4cd137";
+            correctCount++;
+            totalScore += Math.max(0, 10000 - timeTakenMs);
+        } else {
+            feedback.innerText = (selected === null) ? `時間切れ！ 正解: ${correct}` : `× 不正解（正解: ${correct}）`;
+            feedback.style.color = (selected === null) ? "#fbc531" : "#e84118";
+        }
+        currentIndex++;
+        setTimeout(showQuestion, 1200);
+    }
+
+    function showResult() {
+        document.getElementById('quiz-area').style.display = 'none';
+        document.getElementById('timer-container').style.display = 'none';
+        document.getElementById('result-area').style.display = 'block';
+
+        const finalScore = Math.floor(totalScore);
+        document.getElementById('final-points').innerText = finalScore.toLocaleString();
+        document.getElementById('stats').innerText = `正解数: ${correctCount} / ${MAX_QUESTIONS}`;
+
+        sendScore(userName, finalScore);
+    }
+
+    async function sendScore(name, score) {
+        if (!GAS_URL.startsWith("http")) {
+            document.getElementById('sending-msg').innerText = "※URLが未設定です";
+            return;
+        }
+        document.getElementById('sending-msg').innerText = "順位を取得中...";
+        try {
+            const response = await fetch(GAS_URL, {
+                method: "POST",
+                body: JSON.stringify({ name: name, score: score })
+            });
+            const result = await response.json();
+            
+            // 順位を表示
+            document.getElementById('rank-container').style.display = "block";
+            document.getElementById('rank-val').innerText = result.rank;
+            document.getElementById('total-val').innerText = result.total;
+            document.getElementById('sending-msg').innerText = "今日の順位が確定しました！";
+        } catch (e) {
+            document.getElementById('sending-msg').innerText = "順位の取得に失敗しました。";
+        }
+    }
+
+    function createChoices(correctJa) {
+        let options = [correctJa];
+        const otherWords = wordList.filter(w => w.ja !== correctJa);
+        shuffleArray(otherWords);
+        for(let i=0; i<3; i++) { options.push(otherWords[i].ja); }
+        shuffleArray(options);
+        return options;
+    }
+
+    function shuffleArray(array) {
+        for (let i = array.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [array[i], array[j]] = [array[j], array[i]];
+        }
+    }
+</script>
+</body>
+</html>
