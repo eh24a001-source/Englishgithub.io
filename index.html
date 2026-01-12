@@ -3,35 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>英単語クイズ - 今日のランキング</title>
+    <title>英単語クイズ - Supabase Ranking</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body { font-family: 'Helvetica Neue', Arial, sans-serif; text-align: center; padding-top: 50px; background-color: #f0f2f5; color: #2f3640; }
         .container { background: white; max-width: 500px; margin: auto; padding: 30px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); position: relative; overflow: hidden; min-height: 480px; }
-        
         #timer-container { width: 100%; height: 8px; background-color: #eee; position: absolute; top: 0; left: 0; display: none; }
         #timer-bar { width: 100%; height: 100%; background-color: #4cd137; transition: width 0.05s linear; }
-        
         #name-screen input { padding: 12px; font-size: 18px; border-radius: 8px; border: 2px solid #ddd; width: 80%; margin-bottom: 20px; }
-        
-        #progress { font-size: 14px; color: #888; margin-top: 10px; }
         #word { font-size: 48px; font-weight: bold; margin: 20px 0; }
         .choices-container { display: grid; grid-template-columns: 1 white; gap: 12px; }
-        .choice-btn { 
-            font-size: 18px; padding: 15px; background: #fff; border: 2px solid #487eb0; 
-            border-radius: 12px; cursor: pointer; transition: 0.2s; color: #487eb0; font-weight: bold;
-        }
-        .choice-btn:hover:not(:disabled) { background: #dcdde1; border-color: #273c75; }
+        .choice-btn { font-size: 18px; padding: 15px; background: #fff; border: 2px solid #487eb0; border-radius: 12px; cursor: pointer; color: #487eb0; font-weight: bold; }
         .choice-btn:disabled { opacity: 0.6; }
-        
-        #feedback { margin-top: 20px; font-size: 20px; font-weight: bold; height: 30px; }
-        
-        /* リザルト画面 */
         .score-display { font-size: 64px; font-weight: bold; color: #e84118; margin: 10px 0; }
         .rank-display { font-size: 24px; color: #2f3640; margin-bottom: 20px; background: #fff3cd; padding: 10px; border-radius: 10px; display: none; }
-        .stats { font-size: 16px; color: #7f8c8d; margin-bottom: 20px; }
-        .btn-primary { padding: 15px 40px; font-size: 18px; background: #487eb0; color: white; border: none; border-radius: 50px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
-        .btn-primary:hover { background: #273c75; }
-        #sending-msg { font-size: 14px; color: #0097e6; margin-top: 15px; font-weight: bold; }
+        .btn-primary { padding: 15px 40px; font-size: 18px; background: #487eb0; color: white; border: none; border-radius: 50px; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -40,195 +26,143 @@
     <div id="timer-container"><div id="timer-bar"></div></div>
 
     <div id="name-screen">
-        <h2>DAILY RANKING</h2>
-        <p>名前を入力して開始</p>
+        <h2>SUPABASE QUIZ</h2>
         <input type="text" id="user-name" placeholder="ニックネーム" maxlength="15">
         <br>
         <button class="btn-primary" onclick="confirmName()">クイズ開始</button>
     </div>
 
-    <div id="setup" style="display:none;">単語データを読み込んでいます...</div>
-
     <div id="quiz-area" style="display:none;">
         <div id="progress">第 1 / 10 問</div>
         <div id="word">Word</div>
         <div id="choices" class="choices-container"></div>
-        <div id="feedback"></div>
+        <div id="feedback" style="height:30px; margin-top:20px; font-weight:bold;"></div>
     </div>
 
     <div id="result-area" style="display:none;">
         <div style="font-size:20px;">TOTAL SCORE</div>
         <div id="final-points" class="score-display">0</div>
-        
-        <div id="rank-container" class="rank-display">
-            今日の順位: <span id="rank-val">-</span> / <span id="total-val">-</span> 位
-        </div>
-
-        <div id="stats" class="stats"></div>
+        <div id="rank-container" class="rank-display">今日の順位: <span id="rank-val">-</span> 位</div>
         <button class="btn-primary" onclick="location.reload()">RETRY</button>
-        <div id="sending-msg"></div>
+        <p id="msg" style="font-size:12px; color:gray; margin-top:10px;"></p>
     </div>
 </div>
 
 <script>
-    // --- GASのURLをここに貼り付け ---
-    const GAS_URL = "https://script.google.com/macros/s/AKfycbxevyi047eXKSkxyb-t1_ORjW5Ty1G3tVXrUbc_2SqxN7N-1SXhU6cIHarfq-Whukcg/exec";
+    // --- Supabase設定エリア ---
+    const SUPABASE_URL = "https://lfnakzmimvwxsjplpekf.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_H9J9-vBxbA45AyndSymaqg__0z12d0p";
+    const supabase = exports.supabasejs.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    // --- クイズ設定 ---
     const MAX_QUESTIONS = 10;
     const TIME_LIMIT_MS = 10000;
-
-    let wordList = [];
-    let currentIndex = 0;
-    let correctCount = 0;
-    let totalScore = 0;
-    let timerInterval;
-    let questionStartTime;
-    let userName = "";
+    let wordList = [], currentIndex = 0, correctCount = 0, totalScore = 0, timerInterval, questionStartTime, userName = "";
 
     function confirmName() {
         userName = document.getElementById('user-name').value.trim();
-        if (!userName) { alert("名前を入力してください"); return; }
+        if (!userName) return alert("名前を入力してください");
         document.getElementById('name-screen').style.display = 'none';
-        document.getElementById('setup').style.display = 'block';
         loadCSV();
     }
 
     async function loadCSV() {
-        try {
-            const response = await fetch('words.csv');
-            const data = await response.text();
-            const rows = data.split('\n').slice(1);
-            wordList = rows.map(row => {
-                const [english, japanese] = row.split(',');
-                return { en: english?.trim(), ja: japanese?.trim() };
-            }).filter(item => item.en && item.ja);
-
-            if (wordList.length >= 4) {
-                shuffleArray(wordList);
-                startQuiz();
-            } else {
-                document.getElementById('setup').innerText = "単語が足りません。";
-            }
-        } catch (error) {
-            document.getElementById('setup').innerText = "words.csv が見つかりません。";
-        }
+        const response = await fetch('words.csv');
+        const data = await response.text();
+        const rows = data.split('\n').slice(1);
+        wordList = rows.map(row => {
+            const [en, ja] = row.split(',');
+            return { en: en?.trim(), ja: ja?.trim() };
+        }).filter(item => item.en && item.ja);
+        shuffleArray(wordList);
+        startQuiz();
     }
 
     function startQuiz() {
-        document.getElementById('setup').style.display = 'none';
         document.getElementById('quiz-area').style.display = 'block';
         document.getElementById('timer-container').style.display = 'block';
         showQuestion();
     }
 
     function showQuestion() {
-        if (currentIndex >= MAX_QUESTIONS || currentIndex >= wordList.length) {
-            showResult();
-            return;
-        }
-        const currentWord = wordList[currentIndex];
-        document.getElementById('progress').innerText = `第 ${currentIndex + 1} / ${Math.min(MAX_QUESTIONS, wordList.length)} 問`;
-        document.getElementById('word').innerText = currentWord.en;
-        document.getElementById('feedback').innerText = "";
-        const choices = createChoices(currentWord.ja);
+        if (currentIndex >= MAX_QUESTIONS || currentIndex >= wordList.length) return showResult();
+        const cur = wordList[currentIndex];
+        document.getElementById('progress').innerText = `第 ${currentIndex+1} / 10 問`;
+        document.getElementById('word').innerText = cur.en;
+        const choices = createChoices(cur.ja);
         const choicesDiv = document.getElementById('choices');
         choicesDiv.innerHTML = "";
-        choices.forEach(choice => {
+        choices.forEach(c => {
             const btn = document.createElement('button');
-            btn.className = 'choice-btn';
-            btn.innerText = choice;
-            btn.onclick = () => checkAnswer(choice, currentWord.ja);
+            btn.className = 'choice-btn'; btn.innerText = c;
+            btn.onclick = () => checkAnswer(c, cur.ja);
             choicesDiv.appendChild(btn);
         });
         questionStartTime = Date.now();
-        startTimer(currentWord.ja);
+        startTimer(cur.ja);
     }
 
-    function startTimer(correctJa) {
+    function startTimer(correct) {
         clearInterval(timerInterval);
-        const bar = document.getElementById('timer-bar');
         timerInterval = setInterval(() => {
-            const elapsedTime = Date.now() - questionStartTime;
-            const remainingPercent = Math.max(0, 100 - (elapsedTime / TIME_LIMIT_MS * 100));
-            bar.style.width = remainingPercent + "%";
-            if (elapsedTime >= TIME_LIMIT_MS) {
-                clearInterval(timerInterval);
-                checkAnswer(null, correctJa);
-            }
+            const elapsed = Date.now() - questionStartTime;
+            document.getElementById('timer-bar').style.width = Math.max(0, 100 - (elapsed/TIME_LIMIT_MS*100)) + "%";
+            if (elapsed >= TIME_LIMIT_MS) checkAnswer(null, correct);
         }, 30);
     }
 
-    function checkAnswer(selected, correct) {
+    function checkAnswer(sel, cor) {
         clearInterval(timerInterval);
-        const timeTakenMs = Date.now() - questionStartTime;
-        const btns = document.querySelectorAll('.choice-btn');
-        btns.forEach(b => b.disabled = true);
-        const feedback = document.getElementById('feedback');
-        if (selected === correct) {
-            feedback.innerText = "〇 正解！";
-            feedback.style.color = "#4cd137";
-            correctCount++;
-            totalScore += Math.max(0, 10000 - timeTakenMs);
+        const time = Date.now() - questionStartTime;
+        document.querySelectorAll('.choice-btn').forEach(b => b.disabled = true);
+        if (sel === cor) {
+            totalScore += Math.max(0, 10000 - time);
+            document.getElementById('feedback').innerText = "〇 正解！";
         } else {
-            feedback.innerText = (selected === null) ? `時間切れ！ 正解: ${correct}` : `× 不正解（正解: ${correct}）`;
-            feedback.style.color = (selected === null) ? "#fbc531" : "#e84118";
+            document.getElementById('feedback').innerText = "× 不正解";
         }
         currentIndex++;
-        setTimeout(showQuestion, 1200);
+        setTimeout(showQuestion, 1000);
     }
 
-    function showResult() {
+    async function showResult() {
         document.getElementById('quiz-area').style.display = 'none';
         document.getElementById('timer-container').style.display = 'none';
         document.getElementById('result-area').style.display = 'block';
+        const score = Math.floor(totalScore);
+        document.getElementById('final-points').innerText = score.toLocaleString();
 
-        const finalScore = Math.floor(totalScore);
-        document.getElementById('final-points').innerText = finalScore.toLocaleString();
-        document.getElementById('stats').innerText = `正解数: ${correctCount} / ${MAX_QUESTIONS}`;
-
-        sendScore(userName, finalScore);
-    }
-
-    async function sendScore(name, score) {
-    if (!GAS_URL.startsWith("http")) return;
-    document.getElementById('sending-msg').innerText = "順位を取得中...";
-
-    try {
-        // GASへのPOST送信
-        const response = await fetch(GAS_URL, {
-            method: "POST",
-            body: JSON.stringify({ name: name, score: score })
-        });
-
-        if (!response.ok) throw new Error('Network response was not ok');
-
-        const result = await response.json();
+        document.getElementById('msg').innerText = "スコア送信中...";
         
-        // 順位を表示
-        document.getElementById('rank-container').style.display = "block";
-        document.getElementById('rank-val').innerText = result.rank;
-        document.getElementById('total-val').innerText = result.total;
-        document.getElementById('sending-msg').innerText = "スコアが記録されました！";
-    } catch (e) {
-        console.error("Error:", e);
-        document.getElementById('sending-msg').innerText = "順位の取得に失敗しました。";
-        // 詳細なエラーをコンソールに出力
-        console.log("GASのURLが正しいか、デプロイ設定が『全員（匿名）』になっているか確認してください。");
-    }
-}
+        // 1. スコア保存
+        await supabase.from('scores').insert([{ name: userName, score: score }]);
 
-    function createChoices(correctJa) {
-        let options = [correctJa];
-        const otherWords = wordList.filter(w => w.ja !== correctJa);
-        shuffleArray(otherWords);
-        for(let i=0; i<3; i++) { options.push(otherWords[i].ja); }
-        shuffleArray(options);
-        return options;
+        // 2. 今日の順位取得 (今日0時以降のデータをカウント)
+        const today = new Date(); today.setHours(0,0,0,0);
+        const { count } = await supabase
+            .from('scores')
+            .select('*', { count: 'exact', head: true })
+            .gte('created_at', today.toISOString())
+            .gt('score', score);
+
+        document.getElementById('rank-val').innerText = (count + 1);
+        document.getElementById('rank-container').style.display = 'block';
+        document.getElementById('msg').innerText = "完了！";
     }
 
-    function shuffleArray(array) {
-        for (let i = array.length - 1; i > 0; i--) {
+    function createChoices(cor) {
+        let opts = [cor];
+        const others = wordList.filter(w => w.ja !== cor);
+        shuffleArray(others);
+        for(let i=0; i<3; i++) opts.push(others[i].ja);
+        shuffleArray(opts);
+        return opts;
+    }
+
+    function shuffleArray(arr) {
+        for (let i = arr.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
-            [array[i], array[j]] = [array[j], array[i]];
+            [arr[i], arr[j]] = [arr[j], arr[i]];
         }
     }
 </script>
