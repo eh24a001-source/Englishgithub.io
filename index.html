@@ -52,7 +52,9 @@
     // --- Supabase設定エリア ---
     const SUPABASE_URL = "https://lfnakzmimvwxsjplpekf.supabase.co";
     const SUPABASE_KEY = "sb_publishable_H9J9-vBxbA45AyndSymaqg__0z12d0p";
-    const supabase = exports.supabasejs.createClient(SUPABASE_URL, SUPABASE_KEY);
+    
+    // ブラウザ用の初期化方法に修正
+    const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
     // --- クイズ設定 ---
     const MAX_QUESTIONS = 10;
@@ -67,15 +69,19 @@
     }
 
     async function loadCSV() {
-        const response = await fetch('words.csv');
-        const data = await response.text();
-        const rows = data.split('\n').slice(1);
-        wordList = rows.map(row => {
-            const [en, ja] = row.split(',');
-            return { en: en?.trim(), ja: ja?.trim() };
-        }).filter(item => item.en && item.ja);
-        shuffleArray(wordList);
-        startQuiz();
+        try {
+            const response = await fetch('words.csv');
+            const data = await response.text();
+            const rows = data.split('\n').slice(1);
+            wordList = rows.map(row => {
+                const [en, ja] = row.split(',');
+                return { en: en?.trim(), ja: ja?.trim() };
+            }).filter(item => item.en && item.ja);
+            shuffleArray(wordList);
+            startQuiz();
+        } catch (e) {
+            alert("words.csvの読み込みに失敗しました。ファイルが同じフォルダにあるか確認してください。");
+        }
     }
 
     function startQuiz() {
@@ -87,8 +93,9 @@
     function showQuestion() {
         if (currentIndex >= MAX_QUESTIONS || currentIndex >= wordList.length) return showResult();
         const cur = wordList[currentIndex];
-        document.getElementById('progress').innerText = `第 ${currentIndex+1} / 10 問`;
+        document.getElementById('progress').innerText = `第 ${currentIndex+1} / ${Math.min(MAX_QUESTIONS, wordList.length)} 問`;
         document.getElementById('word').innerText = cur.en;
+        document.getElementById('feedback').innerText = "";
         const choices = createChoices(cur.ja);
         const choicesDiv = document.getElementById('choices');
         choicesDiv.innerHTML = "";
@@ -115,11 +122,14 @@
         clearInterval(timerInterval);
         const time = Date.now() - questionStartTime;
         document.querySelectorAll('.choice-btn').forEach(b => b.disabled = true);
+        const feedback = document.getElementById('feedback');
         if (sel === cor) {
             totalScore += Math.max(0, 10000 - time);
-            document.getElementById('feedback').innerText = "〇 正解！";
+            feedback.innerText = "〇 正解！";
+            feedback.style.color = "#4cd137";
         } else {
-            document.getElementById('feedback').innerText = "× 不正解";
+            feedback.innerText = "× 不正解";
+            feedback.style.color = "#e84118";
         }
         currentIndex++;
         setTimeout(showQuestion, 1000);
@@ -134,20 +144,27 @@
 
         document.getElementById('msg').innerText = "スコア送信中...";
         
-        // 1. スコア保存
-        await supabase.from('scores').insert([{ name: userName, score: score }]);
+        try {
+            // 1. スコア保存
+            await _supabase.from('scores').insert([{ name: userName, score: score }]);
 
-        // 2. 今日の順位取得 (今日0時以降のデータをカウント)
-        const today = new Date(); today.setHours(0,0,0,0);
-        const { count } = await supabase
-            .from('scores')
-            .select('*', { count: 'exact', head: true })
-            .gte('created_at', today.toISOString())
-            .gt('score', score);
+            // 2. 今日の順位取得 (自分より高いスコアの人数を数える)
+            const today = new Date(); today.setHours(0,0,0,0);
+            const { count, error } = await _supabase
+                .from('scores')
+                .select('*', { count: 'exact', head: true })
+                .gte('created_at', today.toISOString())
+                .gt('score', score);
 
-        document.getElementById('rank-val').innerText = (count + 1);
-        document.getElementById('rank-container').style.display = 'block';
-        document.getElementById('msg').innerText = "完了！";
+            if (error) throw error;
+
+            document.getElementById('rank-val').innerText = (count + 1);
+            document.getElementById('rank-container').style.display = 'block';
+            document.getElementById('msg').innerText = "スコアが保存されました！";
+        } catch (e) {
+            console.error(e);
+            document.getElementById('msg').innerText = "順位の取得に失敗しました。RLS設定を確認してください。";
+        }
     }
 
     function createChoices(cor) {
@@ -166,5 +183,3 @@
         }
     }
 </script>
-</body>
-</html>
