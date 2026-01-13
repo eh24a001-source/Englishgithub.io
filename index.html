@@ -26,7 +26,7 @@
     <div id="timer-container"><div id="timer-bar"></div></div>
 
     <div id="name-screen">
-        <h2>QUIZ</h2>
+        <h2>SUPABASE QUIZ</h2>
         <input type="text" id="user-name" placeholder="ニックネーム" maxlength="15">
         <br>
         <button class="btn-primary" onclick="confirmName()">クイズ開始</button>
@@ -40,12 +40,18 @@
     </div>
 
     <div id="result-area" style="display:none;">
-        <div style="font-size:20px;">TOTAL SCORE</div>
-        <div id="final-points" class="score-display">0</div>
-        <div id="rank-container" class="rank-display">今日の順位: <span id="rank-val">-</span> 位</div>
-        <button class="btn-primary" onclick="location.reload()">RETRY</button>
-        <p id="msg" style="font-size:12px; color:gray; margin-top:10px;"></p>
+    <div style="font-size:20px;">TOTAL SCORE</div>
+    <div id="final-points" class="score-display">0</div>
+    <div id="rank-container" class="rank-display">今日の順位: <span id="rank-val">-</span> 位</div>
+    
+    <div style="margin-top: 20px; text-align: left; background: #fff; padding: 15px; border-radius: 10px; border: 1px solid #ddd;">
+        <strong style="display:block; margin-bottom:10px; text-align:center;">🏆 本日のTOP 5</strong>
+        <table style="width: 100%; border-collapse: collapse; font-size: 14px;" id="leaderboard">
+            </table>
     </div>
+    <button class="btn-primary" style="margin-top:20px;" onclick="location.reload()">RETRY</button>
+    <p id="msg" style="font-size:12px; color:gray; margin-top:10px;"></p>
+</div>
 </div>
 
 <script>
@@ -136,36 +142,54 @@
     }
 
     async function showResult() {
-        document.getElementById('quiz-area').style.display = 'none';
-        document.getElementById('timer-container').style.display = 'none';
-        document.getElementById('result-area').style.display = 'block';
-        const score = Math.floor(totalScore);
-        document.getElementById('final-points').innerText = score.toLocaleString();
+    document.getElementById('quiz-area').style.display = 'none';
+    document.getElementById('timer-container').style.display = 'none';
+    document.getElementById('result-area').style.display = 'block';
+    const score = Math.floor(totalScore);
+    document.getElementById('final-points').innerText = score.toLocaleString();
 
-        document.getElementById('msg').innerText = "スコア送信中...";
-        
-        try {
-            // 1. スコア保存
-            await _supabase.from('scores').insert([{ name: userName, score: score }]);
+    document.getElementById('msg').innerText = "スコア送信中...";
+    
+    try {
+        // 1. スコア保存
+        await _supabase.from('scores').insert([{ name: userName, score: score }]);
 
-            // 2. 今日の順位取得 (自分より高いスコアの人数を数える)
-            const today = new Date(); today.setHours(0,0,0,0);
-            const { count, error } = await _supabase
-                .from('scores')
-                .select('*', { count: 'exact', head: true })
-                .gte('created_at', today.toISOString())
-                .gt('score', score);
+        // 2. 今日の全データから順位を計算（念のため日付フィルターを少し緩めます）
+        const startOfDay = new Date(); 
+        startOfDay.setHours(0,0,0,0);
 
-            if (error) throw error;
+        const { count } = await _supabase
+            .from('scores')
+            .select('*', { count: 'exact', head: true })
+            .gte('created_at', startOfDay.toISOString())
+            .gt('score', score);
 
-            document.getElementById('rank-val').innerText = (count + 1);
-            document.getElementById('rank-container').style.display = 'block';
-            document.getElementById('msg').innerText = "スコアが保存されました！";
-        } catch (e) {
-            console.error(e);
-            document.getElementById('msg').innerText = "順位の取得に失敗しました。RLS設定を確認してください。";
-        }
+        document.getElementById('rank-val').innerText = (count + 1);
+        document.getElementById('rank-container').style.display = 'block';
+
+        // 3. TOP 5 を取得して表示
+        const { data: topScores } = await _supabase
+            .from('scores')
+            .select('name, score')
+            .gte('created_at', startOfDay.toISOString())
+            .order('score', { ascending: false })
+            .limit(5);
+
+        const board = document.getElementById('leaderboard');
+        board.innerHTML = topScores.map((s, i) => `
+            <tr style="border-bottom: 1px solid #eee;">
+                <td style="padding: 5px;">${i + 1}位</td>
+                <td style="padding: 5px;">${s.name}</td>
+                <td style="padding: 5px; text-align: right;">${s.score.toLocaleString()}</td>
+            </tr>
+        `).join('');
+
+        document.getElementById('msg').innerText = "同期完了！";
+    } catch (e) {
+        console.error(e);
+        document.getElementById('msg').innerText = "エラーが発生しました。";
     }
+}
 
     function createChoices(cor) {
         let opts = [cor];
@@ -182,5 +206,4 @@
             [arr[i], arr[j]] = [arr[j], arr[i]];
         }
     }
-
 </script>
