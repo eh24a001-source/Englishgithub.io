@@ -57,7 +57,7 @@
 <script>
     // --- Supabase設定エリア ---
     const SUPABASE_URL = "https://lfnakzmimvwxsjplpekf.supabase.co";
-    const SUPABASE_KEY = "sb_publishable_H9J9-vBxbA45AyndSymaqg__0z12d0p";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxmbmFrem1pbXZ3eHNqcGxwZWtmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgxOTE0MjAsImV4cCI6MjA4Mzc2NzQyMH0.wClqc-uVjb_SdC10BVAEo_9wIUv6E2apNzD_Oy7bfdk";
     
     // ブラウザ用の初期化方法に修正
     const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -152,42 +152,26 @@
     
     try {
         // 1. スコア保存
-        await _supabase.from('scores').insert([{ name: userName, score: score }]);
+        const { error: insertError } = await _supabase.from('scores').insert([{ name: userName, score: score }]);
+        if (insertError) throw insertError; // 保存に失敗したらここで止める
 
-        // 2. 今日の全データから順位を計算（念のため日付フィルターを少し緩めます）
-        const startOfDay = new Date(); 
-        startOfDay.setHours(0,0,0,0);
-
-        const { count } = await _supabase
+        // 2. 順位取得
+        const startOfDay = new Date(); startOfDay.setHours(0,0,0,0);
+        const { count, error: selectError } = await _supabase
             .from('scores')
             .select('*', { count: 'exact', head: true })
             .gte('created_at', startOfDay.toISOString())
             .gt('score', score);
+        
+        if (selectError) throw selectError; // 取得に失敗したらここで止める
 
         document.getElementById('rank-val').innerText = (count + 1);
         document.getElementById('rank-container').style.display = 'block';
-
-        // 3. TOP 5 を取得して表示
-        const { data: topScores } = await _supabase
-            .from('scores')
-            .select('name, score')
-            .gte('created_at', startOfDay.toISOString())
-            .order('score', { ascending: false })
-            .limit(5);
-
-        const board = document.getElementById('leaderboard');
-        board.innerHTML = topScores.map((s, i) => `
-            <tr style="border-bottom: 1px solid #eee;">
-                <td style="padding: 5px;">${i + 1}位</td>
-                <td style="padding: 5px;">${s.name}</td>
-                <td style="padding: 5px; text-align: right;">${s.score.toLocaleString()}</td>
-            </tr>
-        `).join('');
-
         document.getElementById('msg').innerText = "同期完了！";
+
     } catch (e) {
-        console.error(e);
-        document.getElementById('msg').innerText = "エラーが発生しました。";
+        console.error("エラー詳細:", e);
+        document.getElementById('msg').innerText = "通信エラーが発生しました。コンソールを確認してください。";
     }
 }
 
@@ -206,5 +190,4 @@
             [arr[i], arr[j]] = [arr[j], arr[i]];
         }
     }
-
 </script>
