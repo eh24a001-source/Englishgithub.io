@@ -3,26 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>タイマー付き！英単語クイズ</title>
+    <title>AI 4択生成！英単語クイズ</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body { font-family: 'Helvetica Neue', Arial, sans-serif; background-color: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
-        .card { background: white; padding: 2rem; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 100%; max-width: 400px; text-align: center; }
-        h1 { color: #1e3a8a; margin-bottom: 1.5rem; }
-        input { width: 90%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; }
+        .card { background: white; padding: 2rem; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 100%; max-width: 450px; text-align: center; }
+        h1 { color: #1e3a8a; margin-bottom: 1rem; }
+        input[type="text"], input[type="password"], input[type="file"] { width: 90%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
         button { width: 100%; padding: 12px; background-color: #3b82f6; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; margin-top: 10px; font-weight: bold; }
         button:hover { background-color: #2563eb; }
         .secondary-btn { background-color: #6b7280; margin-top: 5px; }
-        #quiz-area, #result-area { display: none; }
+        #prep-area, #quiz-area, #result-area { display: none; }
+        #timer-container { width: 100%; height: 12px; background-color: #e5e7eb; border-radius: 6px; overflow: hidden; margin-bottom: 20px; }
+        #timer-gauge { width: 100%; height: 100%; background-color: #ef4444; transition: width 10s linear; }
         .word { font-size: 36px; font-weight: bold; margin: 20px 0; color: #1f2937; }
         .choices { display: grid; gap: 10px; }
-        .choice-btn { background-color: #f3f4f6; color: #374151; border: 1px solid #d1d5db; transition: 0.2s; padding: 10px; border-radius: 5px; cursor: pointer; }
+        .choice-btn { background-color: #f3f4f6; color: #374151; border: 1px solid #d1d5db; padding: 12px; border-radius: 8px; cursor: pointer; font-size: 16px; transition: 0.2s; }
         .choice-btn:hover { background-color: #e5e7eb; border-color: #3b82f6; }
-        .score-val { font-size: 48px; color: #ef4444; font-weight: bold; margin: 10px 0; }
-        #timer { font-size: 20px; font-weight: bold; color: #e11d48; margin-bottom: 10px; }
-        table { width: 100%; margin-top: 20px; border-collapse: collapse; font-size: 14px; }
+        .score-val { font-size: 48px; color: #ef4444; font-weight: bold; }
+        table { width: 100%; margin-top: 20px; border-collapse: collapse; font-size: 13px; }
         th, td { border-bottom: 1px solid #eee; padding: 10px; text-align: left; }
-        .user-info { font-size: 14px; color: #666; margin-bottom: 15px; background: #eef2ff; padding: 5px; border-radius: 5px; }
+        .user-info { font-size: 13px; color: #666; margin-bottom: 15px; background: #f8fafc; padding: 8px; border-radius: 5px; }
     </style>
 </head>
 <body>
@@ -30,16 +31,23 @@
 <div class="card">
     <div id="auth-area">
         <h1>English Quiz</h1>
-        <p>ユーザーネームでログイン</p>
         <input type="text" id="username" placeholder="ユーザーネーム">
         <input type="password" id="password" placeholder="パスワード(6文字以上)">
         <button onclick="handleLogin()">ログイン</button>
         <button class="secondary-btn" onclick="handleSignUp()">新しく作る</button>
     </div>
 
-    <div id="quiz-area">
+    <div id="prep-area">
+        <h1>READY?</h1>
         <div class="user-info">プレイヤー: <span id="display-name"></span></div>
-        <div id="timer">残り: 10秒</div>
+        <p>「words.csv」を選択してください</p>
+        <input type="file" id="csv-file" accept=".csv">
+        <button onclick="loadCsvAndGenerateQuiz()" style="background-color: #10b981;">クイズ生成 ＆ START!!</button>
+        <button class="secondary-btn" onclick="handleLogout()">ログアウト</button>
+    </div>
+
+    <div id="quiz-area">
+        <div id="timer-container"><div id="timer-gauge"></div></div>
         <div id="question-word" class="word">Word</div>
         <div id="choices-container" class="choices"></div>
     </div>
@@ -47,99 +55,138 @@
     <div id="result-area">
         <h1>RESULT</h1>
         <div id="final-score" class="score-val">0</div>
-        <p id="rank-display"></p>
         <table>
             <thead><tr><th>順位</th><th>名前</th><th>スコア</th></tr></thead>
             <tbody id="leaderboard-body"></tbody>
         </table>
-        <button onclick="startQuiz()">再挑戦</button>
-        <button class="secondary-btn" onclick="handleLogout()">ログアウト</button>
+        <button onclick="showPrep()">タイトルへ戻る</button>
     </div>
 </div>
 
 <script>
-    // --- 1. Supabaseの初期化 (ここを正確に！) ---
     const SUPABASE_URL = "https://lfnakzmimvwxsjplpekf.supabase.co";
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxmbmFrem1pbXZ3eHNqcGxwZWtmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgxOTE0MjAsImV4cCI6MjA4Mzc2NzQyMH0.wClqc-uVjb_SdC10BVAEo_9wIUv6E2apNzD_Oy7bfdk"; 
     const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    const quizData = [
-        { q: "Experience", a: ["経験", "実験", "表現", "期待"], correct: 0 },
-        { q: "Occur", a: ["隠す", "起こる", "選ぶ", "助ける"], correct: 1 },
-        { q: "Sufficient", a: ["難しい", "複雑な", "十分な", "効率的な"], correct: 2 },
-        { q: "Analyze", a: ["謝る", "同意する", "分析する", "主張する"], correct: 2 },
-        { q: "Benefit", a: ["利益", "損害", "特徴", "変化"], correct: 0 }
-    ];
-
+    let rawVocabulary = []; // CSVから読み込んだ全単語リスト
+    let quizQuestions = []; // 生成された4択クイズリスト
     let currentIdx = 0;
     let totalScore = 0;
     let timeLeft = 10;
     let timerInterval = null;
 
-    function toFakeEmail(username) {
-        return `${username}@example.com`;
-    }
+    function toFakeEmail(username) { return `${username}@example.com`; }
 
-    // --- 2. 認証処理 ---
+    // --- 認証 ---
     async function handleSignUp() {
         const user = document.getElementById('username').value.trim();
         const pass = document.getElementById('password').value;
         const { error } = await _supabase.auth.signUp({ email: toFakeEmail(user), password: pass });
-        if (error) alert("作成エラー: " + error.message);
-        else alert("アカウント作成成功！ログインしてください。");
+        if (error) alert("エラー: " + error.message);
+        else alert("作成完了！ログインしてください");
     }
 
     async function handleLogin() {
         const user = document.getElementById('username').value.trim();
         const pass = document.getElementById('password').value;
         const { error } = await _supabase.auth.signInWithPassword({ email: toFakeEmail(user), password: pass });
-        if (error) alert("ログイン失敗: " + error.message);
+        if (error) alert("失敗: " + error.message);
     }
 
-    async function handleLogout() {
-        await _supabase.auth.signOut();
-        location.reload();
-    }
+    async function handleLogout() { await _supabase.auth.signOut(); location.reload(); }
 
     _supabase.auth.onAuthStateChange((event, session) => {
         if (session) {
             document.getElementById('auth-area').style.display = 'none';
             document.getElementById('display-name').innerText = session.user.email.split('@')[0];
-            startQuiz();
+            showPrep();
         }
     });
 
-    // --- 3. タイマーとクイズの管理 ---
-    function startTimer() {
-        clearInterval(timerInterval);
-        timeLeft = 10;
-        document.getElementById('timer').innerText = `残り: ${timeLeft}秒`;
-        
-        timerInterval = setInterval(() => {
-            timeLeft--;
-            document.getElementById('timer').innerText = `残り: ${timeLeft}秒`;
-            if (timeLeft <= 0) {
-                clearInterval(timerInterval);
-                checkAnswer(-1); // 時間切れは不正解扱い
-            }
-        }, 1000);
+    function showPrep() {
+        document.getElementById('result-area').style.display = 'none';
+        document.getElementById('prep-area').style.display = 'block';
     }
 
+    // --- CSV読み込み ＆ 4択自動生成ロジック ---
+    function loadCsvAndGenerateQuiz() {
+        const fileInput = document.getElementById('csv-file');
+        if (!fileInput.files[0]) return alert("ファイルを選択してください！");
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const content = e.target.result;
+            const lines = content.split(/\r?\n/);
+            
+            // 1行目はヘッダー(Word,Meaning_ja)なので飛ばす
+            rawVocabulary = lines.slice(1).map(line => {
+                const parts = line.split(',');
+                if (parts.length >= 2) {
+                    return { word: parts[0].trim(), meaning: parts[1].trim() };
+                }
+                return null;
+            }).filter(v => v !== null);
+
+            if (rawVocabulary.length < 4) return alert("単語が足りません（4単語以上必要です）");
+
+            // 全単語の中からランダムに10問抽出して4択化
+            const shuffledVocab = [...rawVocabulary].sort(() => 0.5 - Math.random());
+            const selectedWords = shuffledVocab.slice(0, 10); 
+
+            quizQuestions = selectedWords.map(target => {
+                // 正解以外の意味をランダムに3つ取得
+                const distractors = rawVocabulary
+                    .filter(v => v.meaning !== target.meaning)
+                    .sort(() => 0.5 - Math.random())
+                    .slice(0, 3)
+                    .map(v => v.meaning);
+
+                const choices = [target.meaning, ...distractors].sort(() => 0.5 - Math.random());
+                return {
+                    q: target.word,
+                    a: choices,
+                    correct: choices.indexOf(target.meaning)
+                };
+            });
+
+            startQuiz();
+        };
+        reader.readAsText(fileInput.files[0]);
+    }
+
+    // --- ゲーム進行 ---
     function startQuiz() {
         currentIdx = 0;
         totalScore = 0;
-        document.getElementById('result-area').style.display = 'none';
+        document.getElementById('prep-area').style.display = 'none';
         document.getElementById('quiz-area').style.display = 'block';
         nextQuestion();
     }
 
+    function startTimer() {
+        clearInterval(timerInterval);
+        timeLeft = 10;
+        const gauge = document.getElementById('timer-gauge');
+        gauge.style.transition = 'none';
+        gauge.style.width = '100%';
+        setTimeout(() => {
+            gauge.style.transition = 'width 10s linear';
+            gauge.style.width = '0%';
+        }, 10);
+
+        timerInterval = setInterval(() => {
+            timeLeft--;
+            if (timeLeft <= 0) { clearInterval(timerInterval); checkAnswer(-1); }
+        }, 1000);
+    }
+
     function nextQuestion() {
-        if (currentIdx >= quizData.length) {
+        if (currentIdx >= quizQuestions.length) {
             clearInterval(timerInterval);
             showResult();
             return;
         }
-        const data = quizData[currentIdx];
+        const data = quizQuestions[currentIdx];
         document.getElementById('question-word').innerText = data.q;
         const container = document.getElementById('choices-container');
         container.innerHTML = '';
@@ -155,11 +202,11 @@
 
     function checkAnswer(choiceIdx) {
         clearInterval(timerInterval);
-        if (choiceIdx === quizData[currentIdx].correct) {
-            totalScore += (timeLeft * 100) + 500; // 早く答えるほど高得点
+        if (choiceIdx === quizQuestions[currentIdx].correct) {
+            totalScore += (timeLeft * 150) + 500;
         }
         currentIdx++;
-        nextQuestion();
+        setTimeout(nextQuestion, 100);
     }
 
     async function showResult() {
