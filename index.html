@@ -75,9 +75,9 @@
     let currentIdx = 0;
     let totalScore = 0;
 
-    // ユーザーネームを疑似メールアドレスに変換する関数
+    // 「.internal」を「.com」などに変更します
     function toFakeEmail(username) {
-        return `${username}@quiz-app.internal`;
+        return `${username}@example.com`; // これならSupabaseのチェックを通りやすいです
     }
 
     // --- 2. 認証処理 ---
@@ -201,4 +201,5 @@
 </script>
 
 </body>
+
 </html>
