@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ユーザーネームでログイン！英単語クイズ</title>
+    <title>タイマー付き！英単語クイズ</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body { font-family: 'Helvetica Neue', Arial, sans-serif; background-color: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
@@ -16,9 +16,10 @@
         #quiz-area, #result-area { display: none; }
         .word { font-size: 36px; font-weight: bold; margin: 20px 0; color: #1f2937; }
         .choices { display: grid; gap: 10px; }
-        .choice-btn { background-color: #f3f4f6; color: #374151; border: 1px solid #d1d5db; transition: 0.2s; }
+        .choice-btn { background-color: #f3f4f6; color: #374151; border: 1px solid #d1d5db; transition: 0.2s; padding: 10px; border-radius: 5px; cursor: pointer; }
         .choice-btn:hover { background-color: #e5e7eb; border-color: #3b82f6; }
         .score-val { font-size: 48px; color: #ef4444; font-weight: bold; margin: 10px 0; }
+        #timer { font-size: 20px; font-weight: bold; color: #e11d48; margin-bottom: 10px; }
         table { width: 100%; margin-top: 20px; border-collapse: collapse; font-size: 14px; }
         th, td { border-bottom: 1px solid #eee; padding: 10px; text-align: left; }
         .user-info { font-size: 14px; color: #666; margin-bottom: 15px; background: #eef2ff; padding: 5px; border-radius: 5px; }
@@ -29,16 +30,16 @@
 <div class="card">
     <div id="auth-area">
         <h1>English Quiz</h1>
-        <p>ユーザーネームで始めよう</p>
+        <p>ユーザーネームでログイン</p>
         <input type="text" id="username" placeholder="ユーザーネーム">
-        <input type="password" id="password" placeholder="パスワード">
+        <input type="password" id="password" placeholder="パスワード(6文字以上)">
         <button onclick="handleLogin()">ログイン</button>
         <button class="secondary-btn" onclick="handleSignUp()">新しく作る</button>
     </div>
 
     <div id="quiz-area">
         <div class="user-info">プレイヤー: <span id="display-name"></span></div>
-        <div id="progress" style="font-size: 14px; color: #6b7280;"></div>
+        <div id="timer">残り: 10秒</div>
         <div id="question-word" class="word">Word</div>
         <div id="choices-container" class="choices"></div>
     </div>
@@ -46,25 +47,22 @@
     <div id="result-area">
         <h1>RESULT</h1>
         <div id="final-score" class="score-val">0</div>
-        <p id="rank-display" style="font-weight: bold; color: #1e3a8a;"></p>
-        
+        <p id="rank-display"></p>
         <table>
             <thead><tr><th>順位</th><th>名前</th><th>スコア</th></tr></thead>
             <tbody id="leaderboard-body"></tbody>
         </table>
-
-        <button onclick="startQuiz()">もう一度挑戦</button>
+        <button onclick="startQuiz()">再挑戦</button>
         <button class="secondary-btn" onclick="handleLogout()">ログアウト</button>
     </div>
 </div>
 
 <script>
-    // --- 1. Supabaseの初期化 ---
+    // --- 1. Supabaseの初期化 (ここを正確に！) ---
     const SUPABASE_URL = "https://lfnakzmimvwxsjplpekf.supabase.co";
-    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxmbmFrem1pbXZ3eHNqcGxwZWtmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgxOTE0MjAsImV4cCI6MjA4Mzc2NzQyMH0.wClqc-uVjb_SdC10BVAEo_9wIUv6E2apNzD_Oy7bfdk";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxmbmFrem1pbXZ3eHNqcGxwZWtmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgxOTE0MjAsImV4cCI6MjA4Mzc2NzQyMH0.wClqc-uVjb_SdC10BVAEo_9wIUv6E2apNzD_Oy7bfdk"; 
     const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    // クイズ用データ
     const quizData = [
         { q: "Experience", a: ["経験", "実験", "表現", "期待"], correct: 0 },
         { q: "Occur", a: ["隠す", "起こる", "選ぶ", "助ける"], correct: 1 },
@@ -72,40 +70,30 @@
         { q: "Analyze", a: ["謝る", "同意する", "分析する", "主張する"], correct: 2 },
         { q: "Benefit", a: ["利益", "損害", "特徴", "変化"], correct: 0 }
     ];
+
     let currentIdx = 0;
     let totalScore = 0;
+    let timeLeft = 10;
+    let timerInterval = null;
 
-    // 「.internal」を「.com」などに変更します
     function toFakeEmail(username) {
-        return `${username}@example.com`; // これならSupabaseのチェックを通りやすいです
+        return `${username}@example.com`;
     }
 
     // --- 2. 認証処理 ---
     async function handleSignUp() {
         const user = document.getElementById('username').value.trim();
         const pass = document.getElementById('password').value;
-        if(!user || pass.length < 6) return alert("ユーザーネームと6文字以上のパスワードを入力してください");
-
-        const { error } = await _supabase.auth.signUp({ 
-            email: toFakeEmail(user), 
-            password: pass,
-            options: { data: { display_name: user } } // メタデータとして名前を保存
-        });
-
+        const { error } = await _supabase.auth.signUp({ email: toFakeEmail(user), password: pass });
         if (error) alert("作成エラー: " + error.message);
-        else alert("アカウントを作成しました！ログインしてください。");
+        else alert("アカウント作成成功！ログインしてください。");
     }
 
     async function handleLogin() {
         const user = document.getElementById('username').value.trim();
         const pass = document.getElementById('password').value;
-        
-        const { error } = await _supabase.auth.signInWithPassword({ 
-            email: toFakeEmail(user), 
-            password: pass 
-        });
-
-        if (error) alert("ログイン失敗: ユーザーネームかパスワードが違います");
+        const { error } = await _supabase.auth.signInWithPassword({ email: toFakeEmail(user), password: pass });
+        if (error) alert("ログイン失敗: " + error.message);
     }
 
     async function handleLogout() {
@@ -113,7 +101,6 @@
         location.reload();
     }
 
-    // ログイン状態を監視
     _supabase.auth.onAuthStateChange((event, session) => {
         if (session) {
             document.getElementById('auth-area').style.display = 'none';
@@ -122,7 +109,22 @@
         }
     });
 
-    // --- 3. クイズロジック ---
+    // --- 3. タイマーとクイズの管理 ---
+    function startTimer() {
+        clearInterval(timerInterval);
+        timeLeft = 10;
+        document.getElementById('timer').innerText = `残り: ${timeLeft}秒`;
+        
+        timerInterval = setInterval(() => {
+            timeLeft--;
+            document.getElementById('timer').innerText = `残り: ${timeLeft}秒`;
+            if (timeLeft <= 0) {
+                clearInterval(timerInterval);
+                checkAnswer(-1); // 時間切れは不正解扱い
+            }
+        }, 1000);
+    }
+
     function startQuiz() {
         currentIdx = 0;
         totalScore = 0;
@@ -133,15 +135,14 @@
 
     function nextQuestion() {
         if (currentIdx >= quizData.length) {
+            clearInterval(timerInterval);
             showResult();
             return;
         }
-        document.getElementById('progress').innerText = `${currentIdx + 1} / ${quizData.length} 問目`;
         const data = quizData[currentIdx];
         document.getElementById('question-word').innerText = data.q;
         const container = document.getElementById('choices-container');
         container.innerHTML = '';
-        
         data.a.forEach((choice, i) => {
             const btn = document.createElement('button');
             btn.className = 'choice-btn';
@@ -149,57 +150,38 @@
             btn.onclick = () => checkAnswer(i);
             container.appendChild(btn);
         });
+        startTimer();
     }
 
     function checkAnswer(choiceIdx) {
+        clearInterval(timerInterval);
         if (choiceIdx === quizData[currentIdx].correct) {
-            totalScore += 1000;
+            totalScore += (timeLeft * 100) + 500; // 早く答えるほど高得点
         }
         currentIdx++;
         nextQuestion();
     }
 
-    // --- 4. スコア保存とランキング ---
     async function showResult() {
         document.getElementById('quiz-area').style.display = 'none';
         document.getElementById('result-area').style.display = 'block';
         document.getElementById('final-score').innerText = totalScore.toLocaleString();
 
-        const session = (await _supabase.auth.getSession()).data.session;
-        const username = session.user.email.split('@')[0];
+        const user = (await _supabase.auth.getUser()).data.user;
+        const username = user.email.split('@')[0];
         
-        try {
-            // スコア送信
-            await _supabase.from('scores').insert([{ name: username, score: totalScore }]);
+        await _supabase.from('scores').insert([{ name: username, score: totalScore }]);
 
-            // 順位取得 (今日0時以降)
-            const today = new Date(); today.setHours(0,0,0,0);
-            const { count } = await _supabase
-                .from('scores')
-                .select('*', { count: 'exact', head: true })
-                .gte('created_at', today.toISOString())
-                .gt('score', totalScore);
-            
-            document.getElementById('rank-display').innerText = `今日の順位: ${count + 1} 位`;
+        const { data: topScores } = await _supabase
+            .from('scores')
+            .select('name, score')
+            .order('score', { ascending: false })
+            .limit(5);
 
-            // TOP 5 取得
-            const { data: topScores } = await _supabase
-                .from('scores')
-                .select('name, score')
-                .order('score', { ascending: false })
-                .limit(5);
-
-            const tbody = document.getElementById('leaderboard-body');
-            tbody.innerHTML = topScores.map((s, i) => `
-                <tr><td>${i+1}位</td><td>${s.name}</td><td>${s.score.toLocaleString()}</td></tr>
-            `).join('');
-
-        } catch (e) {
-            console.error("通信エラー:", e);
-        }
+        document.getElementById('leaderboard-body').innerHTML = topScores.map((s, i) => `
+            <tr><td>${i+1}位</td><td>${s.name}</td><td>${s.score.toLocaleString()}</td></tr>
+        `).join('');
     }
 </script>
-
 </body>
-
 </html>
